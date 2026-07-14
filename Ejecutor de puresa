@@ -1,0 +1,78 @@
+import cv2
+import datetime
+
+# Cargar el clasificador de rostros estándar de OpenCV
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+
+# Iniciar captura de la cámara web (0 suele ser la cámara integrada)
+cap = cv2.VideoCapture(0)
+
+if not cap.isOpened():
+    print("Error: No se pudo acceder a la cámara.")
+    exit()
+
+print("Programa iniciado. Registrando datos en 'registro_coordenadas.txt'...")
+print("Presiona la tecla 'q' para cerrar el programa de forma segura.")
+
+# Abrir el archivo en modo "append" (a) para añadir líneas sin borrar lo anterior
+with open("registro_coordenadas.txt", "a") as archivo:
+    # Escribir un encabezado de inicio de sesión con la fecha actual
+    archivo.write(f"\n--- NUEVA SESIÓN DE ESCANEO: {datetime.datetime.now()} ---\n")
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        # Redimensionar el cuadro para optimizar el rendimiento
+        frame = cv2.resize(frame, (640, 480))
+        alto, ancho, _ = frame.shape
+
+        # Aplicar el filtro digital azulado
+        gray_img = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        hologram = cv2.cvtColor(gray_img, cv2.COLOR_GRAY2BGR)
+        hologram[:, :, 0] = cv2.add(hologram[:, :, 0], 80)
+        hologram[:, :, 1] = cv2.add(hologram[:, :, 1], 20)
+        hologram[:, :, 2] = cv2.multiply(hologram[:, :, 2], 0.2)
+
+        # Dibujar las líneas de barrido del monitor
+        for y in range(0, alto, 4):
+            cv2.line(hologram, (0, y), (ancho, y), (255, 100, 0), 1)
+
+        # Ejecutar el algoritmo de detección de rostros
+        rostros = face_cascade.detectMultiScale(gray_img, scaleFactor=1.3, minNeighbors=5)
+
+        for (x, y, w, h) in rostros:
+            # Dibujar el cuadro amarillo perimetral
+            cv2.rectangle(hologram, (x, y), (x+w, y+h), (0, 255, 255), 2)
+            
+            # Calcular las coordenadas exactas del punto central
+            centro_x = x + (w // 2)
+            centro_y = y + (h // 2)
+            
+            # Dibujar el punto de mira (punto central rojo y retícula)
+            cv2.circle(hologram, (centro_x, centro_y), 5, (0, 0, 255), -1)
+            cv2.line(hologram, (centro_x - 15, centro_y), (centro_x + 15, centro_y), (0, 255, 255), 1)
+            cv2.line(hologram, (centro_x, centro_y - 15), (centro_x, centro_y + 15), (0, 255, 255), 1)
+            
+            # Mostrar las coordenadas en el visor de pantalla
+            cv2.putText(hologram, f"CENTRO: X={centro_x} Y={centro_y}", (x, y + h + 20), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
+
+            # --- REGISTRO AUTOMÁTICO EN EL ARCHIVO TEXTO ---
+            marca_tiempo = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            linea_registro = f"[{marca_tiempo}] Rostro Detectado -> CentroX: {centro_x}, CentroY: {centro_y}\n"
+            archivo.write(linea_registro)
+            archivo.flush() # Asegura que los datos se guarden inmediatamente en el disco
+
+        # Mostrar la ventana interactiva
+        cv2.imshow('Analisis de Imagen - Registro de Datos', hologram)
+
+        # Detectar si el usuario presiona la tecla 'q' para salir
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+# Liberar la cámara y limpiar las ventanas del sistema
+cap.release()
+cv2.destroyAllWindows()
+print("Programa finalizado correctamente. Archivo de texto guardado.")
